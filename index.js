@@ -24,6 +24,9 @@ io.on("connection", (socket) => {
         rooms[roomCode].push(socket.id);
         socket.join(roomCode);
 
+        // 2nd fix to my stupid logica
+        socket.data.room = roomCode;
+
         // role assignment
         const role = rooms[roomCode].length === 1 ? "Guide" : "Blind";
         socket.emit("roleAssigned", role);
@@ -36,7 +39,13 @@ io.on("connection", (socket) => {
 
         socket.on("disconnect", () => {
             console.log(socket.id, "disconnected");
+
+            // 2nd fix to my stupid logica
+            const roomCode = socket.data.room;
+            if (!roomCode || !rooms[roomCode]) return;
+
             rooms[roomCode] = rooms[roomCode].filter((id) => id !== socket.id);
+            
             if (rooms[roomCode].length === 0) { // fixes my stupid logic
                 delete rooms[roomCode];
             } else {
