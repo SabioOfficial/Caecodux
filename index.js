@@ -14,16 +14,26 @@ io.on("connection", (socket) => {
     console.log("New client:", socket.id);
 
     socket.on("joinRoom", (roomCode) => {
+        // prevents multi joining and wondering what the fuck is going on
+        if (socket.data.room) {
+            socket.emit("alreadyInRoom", socket.data.room);
+            return;
+        }
+
         if (!rooms[roomCode]) rooms[roomCode] = [];
 
+        // max 2 players ok i know you dont have friends though so this will never happen
         if (rooms[roomCode].length >= 2) {
             socket.emit("roomFull");
             return;
         }
 
-        rooms[roomCode].push(socket.id);
-        socket.join(roomCode);
+        // prevent duplicate socket ids
+        if (!rooms[roomCode].includes(socket.id)) {
+            rooms[roomCode].push(socket.id);
+        }
 
+        socket.join(roomCode);
         // 2nd fix to my stupid logica
         socket.data.room = roomCode;
 
@@ -36,22 +46,23 @@ io.on("connection", (socket) => {
             room: roomCode,
             players: rooms[roomCode].length,
         });
+    });
 
-        socket.on("disconnect", () => {
-            console.log(socket.id, "disconnected");
+    // oops this wasnt supposed to be nested in the joinRoom socket
+    socket.on("disconnect", () => {
+        console.log(socket.id, "disconnected");
 
-            // 2nd fix to my stupid logica
-            const roomCode = socket.data.room;
-            if (!roomCode || !rooms[roomCode]) return;
+        // 2nd fix to my stupid logica
+        const roomCode = socket.data.room;
+        if (!roomCode || !rooms[roomCode]) return;
 
-            rooms[roomCode] = rooms[roomCode].filter((id) => id !== socket.id);
-            
-            if (rooms[roomCode].length === 0) { // fixes my stupid logic
-                delete rooms[roomCode];
-            } else {
-                io.to(roomCode).emit("playerLeft", rooms[roomCode].length);
-            }
-        });
+        rooms[roomCode] = rooms[roomCode].filter((id) => id !== socket.id);
+
+        if (rooms[roomCode].length === 0) { // fixes my stupid logic
+            delete rooms[roomCode];
+        } else {
+            io.to(roomCode).emit("playerLeft", rooms[roomCode].length);
+        }
     });
 });
 
