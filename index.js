@@ -37,8 +37,11 @@ io.on("connection", (socket) => {
         socket.on("disconnect", () => {
             console.log(socket.id, "disconnected");
             rooms[roomCode] = rooms[roomCode].filter((id) => id !== socket.id);
-            if (rooms[roomCode].length === 0) delete rooms[roomCode];
-            io.to(roomCode).emit("playerLeft", rooms[roomCode].length);
+            if (rooms[roomCode].length === 0) { // fixes my stupid logic
+                delete rooms[roomCode];
+            } else {
+                io.to(roomCode).emit("playerLeft", rooms[roomCode].length);
+            }
         });
     });
 });
