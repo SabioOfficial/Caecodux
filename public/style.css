@@ -126,3 +126,26 @@ input {
     align-items: center;
     justify-content: center;
 }
+
+.join-status-text {
+    margin: 0.8em 0 0 0;
+}
+
+.horizontal-shaking {
+    animation: 0.4s ease horizontal-shaking;
+}
+@keyframes horizontal-shaking {
+    0% { transform: translateX(0) }
+    25% { transform: translateX(5px) }
+    50% { transform: translateX(-5px) }
+    75% { transform: translateX(5px) }
+    100% { transform: translateX(0) }
+}
+
+.red-flash {
+    animation: 1s ease red-flash;
+}
+@keyframes red-flash {
+    0% { color: red }
+    100% { color: currentColor }
+}
