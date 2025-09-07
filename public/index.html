@@ -29,6 +29,10 @@
         <div class="room-div">
             <h2 id="status">Not connected</h2>
             <div id="players"></div>
+            <button id="startBtn" style="display: none;">Start Game</button>
+        </div>
+        <div class="game-div" style="display: none;">
+            <canvas id="gameCanvas" width="800" height="600"></canvas>
         </div>
 
         <script src="/socket.io/socket.io.js"></script>

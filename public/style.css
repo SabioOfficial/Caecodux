@@ -131,6 +131,24 @@ input {
     margin: 0.8em 0 0 0;
 }
 
+.game-div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100dvh;
+    width: 100dvw;
+}
+
+#gameCanvas {
+    display: block;
+    max-width: 90vw;
+    max-height: 80vh;
+    width: auto;
+    height: auto;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.8);
+}
+
 .horizontal-shaking {
     animation: 0.4s ease horizontal-shaking;
 }

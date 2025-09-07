@@ -5,11 +5,16 @@ const roomInput = document.getElementById('roomInput');
 const joinStatus = document.getElementById('joinStatus');
 const statusEl = document.getElementById('status');
 const playersEl = document.getElementById('players');
+const startBtn = document.getElementById('startBtn');
 
 const lobbyDiv = document.querySelector('.lobby-div');
 const roomDiv = document.querySelector('.room-div');
+const gameDiv = document.querySelector('.game-div');
+const gameCanvas = document.getElementById('gameCanvas');
+const ctx = gameCanvas.getContext("2d");
 
 roomDiv.style.display = 'none';
+gameDiv.style.display = 'none';
 joinStatus.style.visibility = 'hidden';
 
 joinBtn.addEventListener('click', () => {
@@ -41,6 +46,25 @@ socket.on("playerJoined", (data) => {
 socket.on("playerLeft", (data) => {
     renderPlayers(data.players);
 });
+
+startBtn.addEventListener('click', () => {
+    socket.emit("startGame");
+});
+
+socket.on("startGame", () => {
+    roomDiv.style.display = "none";
+    gameDiv.style.display = "flex";
+    initGame();
+});
+
+function initGame() {
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+
+    ctx.fillStyle = "white";
+    ctx.font = "32px National Park";
+    ctx.fillText("Game Started!", 300, 300);
+}
 
 function renderJoinStatus(text) { // i dont know why this took so much lines but it works (I DONT CARE THE SHAKING ANIMATION DOESNT WORK FUCK YOU)
     if (!joinStatus) {

@@ -45,6 +45,13 @@ io.on("connection", (socket) => {
         io.to(roomCode).emit("playerJoined", { players: playerNames });
     });
 
+    socket.on("startGame", () => {
+        const roomCode = socket.data.room;
+        if (roomCode && rooms[roomCode] && rooms[roomCode].length === 2) {
+            io.to(roomCode).emit("startGame");
+        }
+    });
+
     // oops this wasnt supposed to be nested in the joinRoom socket
     socket.on("disconnect", () => {
         console.log(socket.id, "disconnected");
