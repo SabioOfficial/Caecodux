@@ -4,15 +4,31 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Caecodux - Lobby</title>
+        <link rel="stylesheet" href="../global.css">
         <link rel="stylesheet" href="style.css">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=National+Park:wght@200..800&display=swap" rel="stylesheet">
     </head>
     <body>
-        <h1>Join a Room</h1>
-        <input id="roomInput" placeholder="Room code">
-        <button id="joinBtn">Join</button>
-        
-        <h2 id="status">Not connected</h2>
-        <div id="players"></div>
+        <div class="lobby-div">
+            <div class="meta-div">
+                <h1>Caecodux</h1>
+                <h3>Cooperative maze game designed to ruin your friendships.</p>
+            </div>
+            <div class="join-div">
+                <h2>Join</h2>
+                <div class="join-input-div">
+                    <input id="nameInput" placeholder="Name">
+                    <input id="roomInput" placeholder="Room code">
+                    <button id="joinBtn"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-log-in-icon lucide-log-in"><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></svg></button>
+                </div>
+            </div>
+        </div>
+        <div class="room-div">
+            <h2 id="status">Not connected</h2>
+            <div id="players"></div>
+        </div>
 
         <script src="/socket.io/socket.io.js"></script>
         <script src="client.js"></script>
