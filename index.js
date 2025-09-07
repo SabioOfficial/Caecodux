@@ -20,34 +20,46 @@ io.on("connection", (socket) => {
             return;
         }
 
-        if (!rooms[roomCode]) rooms[roomCode] = [];
+        // initialize room with players + inGame flag || THIS IS A CRY FOR HELP
+        if (!rooms[roomCode]) rooms[roomCode] = { players: [], inGame: false };
+        const room = rooms[roomCode];
+
+        // please dont join mid-game. not that ur able to anyways lmao
+        if (room.inGame) {
+            socket.emit("roomInProgress");
+            return;
+        }
 
         // max 2 players ok i know you dont have friends though so this will never happen
-        if (rooms[roomCode].length >= 2) {
+        if (room.players.length >= 2) {
             socket.emit("roomFull");
             return;
         }
 
         // add player with name :shocked:
         const player = { id: socket.id, name: name || `Player-${socket.id.slice(0, 4)}` };
-        rooms[roomCode].push(player);
+        room.players.push(player);
 
         socket.join(roomCode);
         socket.data.room = roomCode;
         socket.data.name = player.name;
 
         // role assignment
-        const role = rooms[roomCode].length === 1 ? "Guide" : "Blind";
+        const role = room.players.length === 1 ? "Guide" : "Blind";
         socket.emit("roleAssigned", role);
 
         // send updated list of names
-        const playerNames = rooms[roomCode].map(p => p.name);
+        const playerNames = room.players.map(p => p.name);
         io.to(roomCode).emit("playerJoined", { players: playerNames });
     });
 
     socket.on("startGame", () => {
         const roomCode = socket.data.room;
-        if (roomCode && rooms[roomCode] && rooms[roomCode].length === 2) {
+        if (!roomCode || !rooms[roomCode]) return;
+
+        const room = rooms[roomCode];
+        if (room.players.length === 2) {
+            room.inGame = true;
             io.to(roomCode).emit("startGame");
         }
     });
@@ -61,14 +73,26 @@ io.on("connection", (socket) => {
         if (!roomCode || !rooms[roomCode]) return;
 
         // fuck you new logic
-        rooms[roomCode] = rooms[roomCode].filter(p => p.id !== socket.id);
+        const room = rooms[roomCode];
+        room.players = room.players.filter(p => p.id !== socket.id);
 
-        if (rooms[roomCode].length === 0) { // fixes my stupid logic
+        if (room.players.length === 0) { // fixes my stupid logic
             delete rooms[roomCode];
         } else {
-            const playerNames = rooms[roomCode].map(p => p.name);
-            // oops i forgot to actually use playerNames
-            io.to(roomCode).emit("playerLeft", { players: playerNames });
+            if (room.inGame) {
+                io.to(roomCode).emit("gameEnded", { reason: "A player disconnected" });
+                room.players.forEach(p => {
+                    const s = io.sockets.sockets.get(p.id);
+                    if (s) {
+                        s.data.room = null;
+                    }
+                });
+                delete rooms[roomCode];
+            } else {
+                const playerNames = rooms[roomCode].map(p => p.name);
+                // oops i forgot to actually use playerNames
+                io.to(roomCode).emit("playerLeft", { players: playerNames });
+            }
         }
     });
 });

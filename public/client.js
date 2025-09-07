@@ -31,6 +31,12 @@ socket.on("roomFull", () => {
     roomDiv.style.display = "none";
 });
 
+socket.on("roomInProgress", () => {
+    renderJoinStatus("Game already in progress");
+    lobbyDiv.style.display = "flex";
+    roomDiv.style.display = "none";
+});
+
 socket.on("roleAssigned", (role) => {
     lobbyDiv.style.display = "none";
     roomDiv.style.display = "flex";
@@ -41,10 +47,12 @@ socket.on("roleAssigned", (role) => {
 // holy shit revamped code for player name update
 socket.on("playerJoined", (data) => {
     renderPlayers(data.players);
+    if (data.players.length >= 2) {startBtn.style.display = 'block'} else {startBtn.style.display = 'none'};
 });
 
 socket.on("playerLeft", (data) => {
     renderPlayers(data.players);
+    if (data.players.length >= 2) {startBtn.style.display = 'block'} else {startBtn.style.display = 'none'};
 });
 
 startBtn.addEventListener('click', () => {
@@ -55,6 +63,19 @@ socket.on("startGame", () => {
     roomDiv.style.display = "none";
     gameDiv.style.display = "flex";
     initGame();
+});
+
+socket.on("gameEnded", ({ reason }) => {
+    alert(reason || "Game ended");
+
+    gameDiv.style.display = "none";
+    roomDiv.style.display = "none";
+    lobbyDiv.style.display = "flex";
+
+    playersEl.innerHTML = "";
+    statusEl.textContent = "Not connected";
+
+    socket.data = {};
 });
 
 function initGame() {
