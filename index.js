@@ -53,13 +53,15 @@ io.on("connection", (socket) => {
         const roomCode = socket.data.room;
         if (!roomCode || !rooms[roomCode]) return;
 
-        rooms[roomCode] = rooms[roomCode].filter((id) => id !== socket.id);
+        // fuck you new logic
+        rooms[roomCode] = rooms[roomCode].filter(p => p.id !== socket.id);
 
         if (rooms[roomCode].length === 0) { // fixes my stupid logic
             delete rooms[roomCode];
         } else {
             const playerNames = rooms[roomCode].map(p => p.name);
-            io.to(roomCode).emit("playerLeft", rooms[roomCode].length);
+            // oops i forgot to actually use playerNames
+            io.to(roomCode).emit("playerLeft", { players: playerNames });
         }
     });
 });
