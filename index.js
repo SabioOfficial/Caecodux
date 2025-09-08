@@ -76,7 +76,7 @@ io.on("connection", (socket) => {
         if (room.players.length === 2) {
             room.inGame = true;
             assignRoles(roomCode);
-            io.to(roomCode).emit("startGame");
+            io.to(roomCode).emit("startGame", { path: room.path || null });
         }
     });
 
@@ -86,7 +86,7 @@ io.on("connection", (socket) => {
         const room = rooms[roomCode];
 
         if (socket.data.role === "Guide") {
-            const raw = generatePath();
+            const raw = generatePath(BASE_W, BASE_H);
             const normalized = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
             room.path = normalized;
             socket.emit("pathData", normalized);
@@ -108,13 +108,23 @@ io.on("connection", (socket) => {
         });
     });
 
-    function generatePath() {
-        return [
-            {x: 50, y: 100},
-            {x: 200, y: 150},
-            {x: 350, y: 250},
-            {x: 500, y: 200}
-        ];
+    function generatePath(width, height) {
+        const numPoints = 8;
+        const margin = 50;
+        const points = [];
+
+        for (let i = 0; i < numPoints; i++) {
+            points.push({
+                x: Math.floor(
+                    margin + Math.random() * (width - margin * 2)
+                ),
+                y: Math.floor(
+                    margin + (i / (numPoints - 1)) * (height - margin * 2)
+                )
+            });
+        }
+
+        return points;
     }
 
     // oops this wasnt supposed to be nested in the joinRoom socket

@@ -60,9 +60,15 @@ startBtn.addEventListener('click', () => {
     socket.emit("startGame");
 });
 
-socket.on("startGame", () => {
+socket.on("startGame", (data = {}) => {
+    const serverPath = data.path;
     roomDiv.style.display = "none";
     gameDiv.style.display = "flex";
+
+    if (role === "Guide") {
+        path = serverPath;
+    }
+
     initGame();
 });
 
