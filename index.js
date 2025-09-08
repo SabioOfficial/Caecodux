@@ -8,6 +8,8 @@ const io = new Server(httpServer);
 
 app.use(express.static("public"));
 
+const BASE_W = 1600;
+const BASE_H = 900;
 const rooms = {};
 
 io.on("connection", (socket) => {
@@ -64,7 +66,6 @@ io.on("connection", (socket) => {
     socket.on("startGame", () => {
         const roomCode = socket.data.room;
         if (!roomCode || !rooms[roomCode]) return;
-
         const room = rooms[roomCode];
 
         if (room.owner !== socket.id) {
@@ -74,9 +75,47 @@ io.on("connection", (socket) => {
 
         if (room.players.length === 2) {
             room.inGame = true;
+            assignRoles(roomCode);
             io.to(roomCode).emit("startGame");
         }
     });
+
+    socket.on("requestPath", () => {
+        const roomCode = socket.data.room;
+        if (!roomCode || !rooms[roomCode]) return;
+        const room = rooms[roomCode];
+
+        if (socket.data.role === "Guide") {
+            const raw = generatePath();
+            const normalized = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
+            room.path = normalized;
+            socket.emit("pathData", normalized);
+        }
+    });
+
+    socket.on("cursorMove", (pos) => {
+        const roomCode = socket.data.room;
+        if (!roomCode) return;
+
+        const room = rooms[roomCode];
+        if (!room) return;
+
+        room.players.forEach(p => {
+            if (p.id !== socket.id) {
+                const s = io.sockets.sockets.get(p.id);
+                if (s) s.emit("cursorUpdate", pos);
+            }
+        });
+    });
+
+    function generatePath() {
+        return [
+            {x: 50, y: 100},
+            {x: 200, y: 150},
+            {x: 350, y: 250},
+            {x: 500, y: 200}
+        ];
+    }
 
     // oops this wasnt supposed to be nested in the joinRoom socket
     socket.on("disconnect", () => {
@@ -127,6 +166,7 @@ function assignRoles(roomCode) {
         const role = index === 0 ? "Guide" : "Blind";
         const s = io.sockets.sockets.get(player.id);
         if (s) {
+            s.data.role = role;
             s.emit("roleAssigned", role);
         }
     });

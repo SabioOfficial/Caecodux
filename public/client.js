@@ -1,3 +1,8 @@
+let role = null;
+let path = null;
+let blindCursor = null;
+let mouseListenerAdded = false;
+
 const socket = io();
 const joinBtn = document.getElementById('joinBtn');
 const nameInput = document.getElementById('nameInput');
@@ -5,6 +10,7 @@ const roomInput = document.getElementById('roomInput');
 const statusEl = document.getElementById('status');
 const playersEl = document.getElementById('players');
 const startBtn = document.getElementById('startBtn');
+const roleDisplay = document.getElementById('roleDisplay');
 
 const lobbyDiv = document.querySelector('.lobby-div');
 const roomDiv = document.querySelector('.room-div');
@@ -32,11 +38,13 @@ socket.on("youAreOwner", () => {
     startBtn.style.display = 'block';
 });
 
-socket.on("roleAssigned", (role) => {
+socket.on("roleAssigned", (r) => {
+    role = r;
     lobbyDiv.style.display = "none";
     roomDiv.style.display = "flex";
-    statusEl.textContent = `You are the ${role}`;
-    statusEl.innerHTML = `You are the <b>${role}</b>`;
+    statusEl.textContent = `You are the ${r}`;
+    statusEl.innerHTML = `You are the <b>${r}</b>`;
+    roleDisplay.textContent = r;
 });
 
 // holy shit revamped code for player name update
@@ -71,13 +79,82 @@ socket.on("gameEnded", ({ reason }) => {
     socket.data = {};
 });
 
+socket.on("pathData", (normalizedPath) => {
+    path = normalizedPath.map(pt => ({
+        x: pt.x * gameCanvas.width,
+        y: pt.y * gameCanvas.height
+    }));
+    if (role === "Guide") drawGuideView();
+});
+
+socket.on("cursorUpdate", (pos) => {
+    blindCursor = {
+        x: pos.x * gameCanvas.width,
+        y: pos.y * gameCanvas.height
+    };
+    if (role === 'Guide') drawGuideView();
+});
+
 function initGame() {
+    initGameCanvas();
+}
+
+function initGameCanvas() {
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
 
-    ctx.fillStyle = "white";
-    ctx.font = "32px National Park";
-    ctx.fillText("Game Started!", 300, 300);
+    if (role === "Guide") {
+        socket.emit("requestPath");
+    }
+
+    gameCanvas.addEventListener("mousemove", (e) => {
+        const rect = gameCanvas.getBoundingClientRect();
+        const pos = {
+            x: (e.clientX - rect.left) / rect.width,
+            y: (e.clientY - rect.top) / rect.height
+        };
+
+        if (role === "Blind") {
+            socket.emit("cursorMove", pos);
+            blindCursor = pos;
+            drawBlindView();
+        }
+    });
+}
+
+function drawGuideView() {
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+
+    if (role === "Guide" && path) {
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) {
+            ctx.lineTo(path[i].x, path[i].y);
+        }
+        ctx.stroke();
+    }
+
+    if (blindCursor) {
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.arc(blindCursor.x, blindCursor.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function drawBlindView() {
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+
+    if (blindCursor) {
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.arc(blindCursor.x, blindCursor.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+    }
 }
 
 function renderPlayers(players, ownerId) {
