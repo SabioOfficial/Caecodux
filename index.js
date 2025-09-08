@@ -26,7 +26,7 @@ io.on("connection", (socket) => {
         }
 
         // initialize room with players + inGame flag || THIS IS A CRY FOR HELP
-        if (!rooms[roomCode]) rooms[roomCode] = { players: [], inGame: false };
+        if (!rooms[roomCode]) rooms[roomCode] = { players: [], inGame: false, owner: null };
         const room = rooms[roomCode];
 
         // please dont join mid-game. not that ur able to anyways lmao
@@ -49,12 +49,16 @@ io.on("connection", (socket) => {
         socket.data.room = roomCode;
         socket.data.name = player.name;
 
+        if (!room.owner) {
+            room.owner = socket.id;
+            socket.emit("youAreOwner");
+        }
+
         // DELETE THAT DAMN ROLE ASSIGNMENT CODE 🗣️🗣️🗣️
         assignRoles(roomCode);
 
         // send updated list of names
-        const playerNames = room.players.map(p => p.name);
-        io.to(roomCode).emit("playerJoined", { players: playerNames });
+        io.to(roomCode).emit("playerJoined", { players: room.players, owner: room.owner });
     });
 
     socket.on("startGame", () => {
@@ -62,6 +66,12 @@ io.on("connection", (socket) => {
         if (!roomCode || !rooms[roomCode]) return;
 
         const room = rooms[roomCode];
+
+        if (room.owner !== socket.id) {
+            socket.emit("startFailed", "Lack of permissions (403)");
+            return;
+        }
+
         if (room.players.length === 2) {
             room.inGame = true;
             io.to(roomCode).emit("startGame");
@@ -93,9 +103,16 @@ io.on("connection", (socket) => {
                 });
                 delete rooms[roomCode];
             } else {
-                const playerNames = room.players.map(p => p.name);
-                // oops i forgot to actually use playerNames
-                io.to(roomCode).emit("playerLeft", { players: playerNames });
+                // refresh "who's the owner"
+                if (room.owner === socket.id) {
+                    room.owner = room.players[0].id;
+                    const newOwner = io.sockets.sockets.get(room.owner);
+                    if (newOwner) newOwner.emit("youAreOwner");
+                }
+
+                io.to(roomCode).emit("playerJoined", { players: room.players, owner: room.owner });
+
+                // asign roles
                 assignRoles(roomCode);
             }
         }

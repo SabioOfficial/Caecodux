@@ -28,6 +28,10 @@ socket.on("joinFailed", (reason) => {
     showToast(reason);
 });
 
+socket.on("youAreOwner", () => {
+    startBtn.style.display = 'block';
+});
+
 socket.on("roleAssigned", (role) => {
     lobbyDiv.style.display = "none";
     roomDiv.style.display = "flex";
@@ -37,13 +41,11 @@ socket.on("roleAssigned", (role) => {
 
 // holy shit revamped code for player name update
 socket.on("playerJoined", (data) => {
-    renderPlayers(data.players);
-    if (data.players.length >= 2) {startBtn.style.display = 'block'} else {startBtn.style.display = 'none'};
+    renderPlayers(data.players, data.owner);
 });
 
 socket.on("playerLeft", (data) => {
-    renderPlayers(data.players);
-    if (data.players.length >= 2) {startBtn.style.display = 'block'} else {startBtn.style.display = 'none'};
+    renderPlayers(data.players, data.owner);
 });
 
 startBtn.addEventListener('click', () => {
@@ -78,16 +80,19 @@ function initGame() {
     ctx.fillText("Game Started!", 300, 300);
 }
 
-function renderPlayers(players) {
+function renderPlayers(players, ownerId) {
     playersEl.innerHTML = "";
     const header = document.createElement('div');
     header.textContent = `Players in room (${players.length}):`;
     playersEl.appendChild(header);
 
     const list = document.createElement("ul");
-    players.forEach(name => {
+    players.forEach(player => {
         const li = document.createElement("li");
-        li.textContent = name;
+        li.textContent = player.name;
+        if (player.id === ownerId) {
+            li.textContent += " 👑";
+        }
         list.appendChild(li);
     });
     playersEl.appendChild(list);
