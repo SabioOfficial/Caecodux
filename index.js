@@ -14,9 +14,14 @@ io.on("connection", (socket) => {
     console.log("New client:", socket.id);
 
     socket.on("joinRoom", (roomCode, name) => {
+        if (!name.trim()) {
+            socket.emit("joinFailed", "Enter a name");
+            return;
+        }
+
         // prevents multi joining and wondering what the fuck is going on
         if (socket.data.room) {
-            socket.emit("alreadyInRoom", socket.data.room);
+            socket.emit("joinFailed", "You're already in a room");
             return;
         }
 
@@ -26,13 +31,13 @@ io.on("connection", (socket) => {
 
         // please dont join mid-game. not that ur able to anyways lmao
         if (room.inGame) {
-            socket.emit("roomInProgress");
+            socket.emit("joinFailed", "The room is closed");
             return;
         }
 
         // max 2 players ok i know you dont have friends though so this will never happen
         if (room.players.length >= 2) {
-            socket.emit("roomFull");
+            socket.emit("joinFailed", "The room is full");
             return;
         }
 
@@ -89,7 +94,7 @@ io.on("connection", (socket) => {
                 });
                 delete rooms[roomCode];
             } else {
-                const playerNames = rooms[roomCode].map(p => p.name);
+                const playerNames = room.players.map(p => p.name);
                 // oops i forgot to actually use playerNames
                 io.to(roomCode).emit("playerLeft", { players: playerNames });
             }

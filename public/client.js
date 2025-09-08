@@ -2,7 +2,6 @@ const socket = io();
 const joinBtn = document.getElementById('joinBtn');
 const nameInput = document.getElementById('nameInput');
 const roomInput = document.getElementById('roomInput');
-const joinStatus = document.getElementById('joinStatus');
 const statusEl = document.getElementById('status');
 const playersEl = document.getElementById('players');
 const startBtn = document.getElementById('startBtn');
@@ -15,7 +14,6 @@ const ctx = gameCanvas.getContext("2d");
 
 roomDiv.style.display = 'none';
 gameDiv.style.display = 'none';
-joinStatus.style.visibility = 'hidden';
 
 joinBtn.addEventListener('click', () => {
     const name = nameInput.value.trim();
@@ -25,16 +23,8 @@ joinBtn.addEventListener('click', () => {
     }
 });
 
-socket.on("roomFull", () => {
-    renderJoinStatus("Room Full");
-    lobbyDiv.style.display = "flex";
-    roomDiv.style.display = "none";
-});
-
-socket.on("roomInProgress", () => {
-    renderJoinStatus("Game already in progress");
-    lobbyDiv.style.display = "flex";
-    roomDiv.style.display = "none";
+socket.on("joinFailed", (reason) => {
+    showToast(reason);
 });
 
 socket.on("roleAssigned", (role) => {
@@ -66,7 +56,7 @@ socket.on("startGame", () => {
 });
 
 socket.on("gameEnded", ({ reason }) => {
-    alert(reason || "Game ended");
+    showToast(reason || "Game ended", 5000);
 
     gameDiv.style.display = "none";
     roomDiv.style.display = "none";
@@ -87,60 +77,6 @@ function initGame() {
     ctx.fillText("Game Started!", 300, 300);
 }
 
-function renderJoinStatus(text) { // i dont know why this took so much lines but it works (I DONT CARE THE SHAKING ANIMATION DOESNT WORK FUCK YOU)
-    if (!joinStatus) {
-        console.warn("renderJoinStatus: joinStatus element not found");
-        return;
-    }
-
-    joinStatus.innerText = text;
-    joinStatus.style.visibility = 'visible';
-
-    // remove previous animation classes so we can restart the animations without fucking the entire rendering
-    joinStatus.classList.remove('horizontal-shaking', 'red-flash');
-    // idk how this shit worked by ok
-    void joinStatus.offsetWidth;
-
-    let expectedCount = 0;
-    let endedCount = 0;
-
-    function handleEnd(e) {
-        // ignore animation events from children :heavysob:
-        if (e.target !== joinStatus) return;
-
-        endedCount++;
-        if (endedCount >= expectedCount) {
-            // cleanup
-            joinStatus.classList.remove('horizontal-shaking', 'red-flash');
-            joinStatus.removeEventListener('animationend', handleEnd);
-        }
-    }
-
-    // add listener first to avoid shit breaking
-    joinStatus.addEventListener('animationend', handleEnd);
-
-    // trigger the animations omg
-    joinStatus.classList.add('horizontal-shaking', 'red-flash');
-
-    // i love frames
-    requestAnimationFrame(() => {
-        const computed = getComputedStyle(joinStatus);
-        expectedCount = computed.animationName
-            .split(',')
-            .map(s => s.trim())
-            .filter(n => n && n !== 'none')
-            .length;
-
-        // fallback 💀
-        if (expectedCount === 0) {
-            setTimeout(() => {
-                joinStatus.classList.remove('horizontal-shaking', 'red-flash');
-                joinStatus.removeEventListener('animationend', handleEnd);
-            }, 800);
-        }
-    });
-}
-
 function renderPlayers(players) {
     playersEl.innerHTML = "";
     const header = document.createElement('div');
@@ -154,4 +90,28 @@ function renderPlayers(players) {
         list.appendChild(li);
     });
     playersEl.appendChild(list);
+}
+
+// borrowed this from client of making
+const toastContainer = document.createElement('div');
+toastContainer.id = 'toast-container';
+Object.assign(toastContainer.style, {
+    position: 'fixed',
+    top: '1rem',
+    right: '1rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+    zIndex: '9999'
+});
+document.body.appendChild(toastContainer);
+
+function showToast(message, duration = 1500) {
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    toast.style.animationDuration = `${duration}ms`;
+    setTimeout(() => toast.remove(), duration);
+    return toast;
 }

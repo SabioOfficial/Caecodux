@@ -127,10 +127,6 @@ input {
     justify-content: center;
 }
 
-.join-status-text {
-    margin: 0.8em 0 0 0;
-}
-
 .game-div {
     display: flex;
     align-items: center;
@@ -166,4 +162,26 @@ input {
 @keyframes red-flash {
     0% { color: red }
     100% { color: currentColor }
+}
+
+/* borrowed from Client of Making */
+.toast {
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.8rem;
+    opacity: 0;
+    animation: fade-in-out 1.5s ease forwards;
+    z-index: 10;
+    pointer-events: none;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+}
+
+@keyframes fade-in-out {
+    0% { opacity: 0; transform: translateY(-5px); }
+    20% { opacity: 1; transform: translateY(0); }
+    80% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-5px); }
 }
