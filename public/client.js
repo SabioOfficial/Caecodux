@@ -23,6 +23,7 @@ joinBtn.addEventListener('click', () => {
     }
 });
 
+// normalize everything into this shitty socket... emitter... thingy. whatever you call it
 socket.on("joinFailed", (reason) => {
     showToast(reason);
 });

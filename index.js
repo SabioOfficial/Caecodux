@@ -49,9 +49,8 @@ io.on("connection", (socket) => {
         socket.data.room = roomCode;
         socket.data.name = player.name;
 
-        // role assignment
-        const role = room.players.length === 1 ? "Guide" : "Blind";
-        socket.emit("roleAssigned", role);
+        // DELETE THAT DAMN ROLE ASSIGNMENT CODE 🗣️🗣️🗣️
+        assignRoles(roomCode);
 
         // send updated list of names
         const playerNames = room.players.map(p => p.name);
@@ -97,10 +96,24 @@ io.on("connection", (socket) => {
                 const playerNames = room.players.map(p => p.name);
                 // oops i forgot to actually use playerNames
                 io.to(roomCode).emit("playerLeft", { players: playerNames });
+                assignRoles(roomCode);
             }
         }
     });
 });
+
+function assignRoles(roomCode) {
+    const room = rooms[roomCode];
+    if (!room) return;
+
+    room.players.forEach((player, index) => {
+        const role = index === 0 ? "Guide" : "Blind";
+        const s = io.sockets.sockets.get(player.id);
+        if (s) {
+            s.emit("roleAssigned", role);
+        }
+    });
+}
 
 // to localhost this shit of a website
 httpServer.listen(3000, () => {
