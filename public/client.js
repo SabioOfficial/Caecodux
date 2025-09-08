@@ -2,6 +2,10 @@ let role = null;
 let path = null;
 let blindCursor = null;
 let mouseListenerAdded = false;
+let measuring = false;
+let lastAccuracy = null;
+let currentRoom = null;
+let MAX_ACCEPT_DISTANCE = 120;
 
 const socket = io();
 const joinBtn = document.getElementById('joinBtn');
@@ -21,9 +25,48 @@ const ctx = gameCanvas.getContext("2d");
 roomDiv.style.display = 'none';
 gameDiv.style.display = 'none';
 
+const measureOverlay = document.createElement('div');
+measureOverlay.id = 'measure-overlay';
+Object.assign(measureOverlay.style, {
+	position: 'fixed',
+	right: '20px',
+	top: '20px',
+	padding: '8px 12px',
+	background: 'rgba(0,0,0,0.6)',
+	color: '#fff',
+	borderRadius: '8px',
+	fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto',
+	fontSize: '1rem',
+	zIndex: 9998,
+	pointerEvents: 'none',
+	display: 'none',
+});
+document.body.appendChild(measureOverlay);
+
+const holdHint = document.createElement('div');
+holdHint.id = 'hold-hint';
+holdHint.textContent = 'Hold mouse button to measure accuracy';
+Object.assign(holdHint.style, {
+	position: 'fixed',
+	left: '50%',
+	top: '12px',
+	transform: 'translateX(-50%)',
+	padding: '6px 10px',
+	background: 'rgba(0,0,0,0.45)',
+	color: '#fff',
+	borderRadius: '8px',
+	fontSize: '0.9rem',
+	zIndex: 9998,
+	pointerEvents: 'none',
+	display: 'none'
+});
+document.body.appendChild(holdHint);
+
 joinBtn.addEventListener('click', () => {
 	const name = nameInput.value.trim();
 	const roomCode = roomInput.value.trim();
+    if (!roomCode) return;
+    currentRoom = roomCode;
 	if (roomCode) {
 		socket.emit("joinRoom", roomCode, name);
 	}
@@ -43,6 +86,14 @@ socket.on("roleAssigned", (r) => {
 	roomDiv.style.display = "flex";
 	statusEl.innerHTML = `You are the <b>${r}</b>`;
 	roleDisplay.textContent = r;
+
+	if (role === 'Blind') {
+		if (!path || path.length === 0) {
+			initGame();
+		} else {
+			drawBlindView();
+		}
+	}
 });
 
 socket.on("playerJoined", (data) => {
@@ -59,13 +110,16 @@ startBtn.addEventListener('click', () => {
 
 socket.on("startGame", (data = {}) => {
 	const serverPath = data.path;
+	if (serverPath) {
+		path = serverPath.map(pt => ({ x: pt.x * gameCanvas.width, y: pt.y * gameCanvas.height }));
+	}
 	roomDiv.style.display = "none";
 	gameDiv.style.display = "flex";
-	if (role === "Guide") {
-		if (serverPath) {
-			path = serverPath.map(pt => ({ x: pt.x * gameCanvas.width, y: pt.y * gameCanvas.height }));
-		}
-	}
+
+	if (role === 'Blind') {
+		if (path && path.length) drawBlindView();
+    }
+
 	initGame();
 });
 
@@ -79,17 +133,42 @@ socket.on("gameEnded", ({ reason }) => {
 	socket.data = {};
 });
 
+socket.on('blindAccuracy', ({ playerId, accuracy }) => {
+	showToast(`${playerId === socket.id ? 'You' : 'Blind'} scored ${(accuracy*100).toFixed(0)}%`, 2000);
+});
+
 socket.on("pathData", (normalizedPath) => {
+	if (!normalizedPath) return;
 	path = normalizedPath.map(pt => ({ x: pt.x * gameCanvas.width, y: pt.y * gameCanvas.height }));
-	if (role === "Guide") drawGuideView();
+	drawGuideView();
+	drawBlindView();
 });
 
 socket.on("cursorUpdate", (pos) => {
-	blindCursor = {
-		x: pos.x * gameCanvas.width,
-		y: pos.y * gameCanvas.height
-	};
+	if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') {
+		blindCursor = null;
+	} else {
+		blindCursor = {
+			x: pos.x * gameCanvas.width,
+			y: pos.y * gameCanvas.height,
+			active: true
+		};
+	}
 	if (role === 'Guide') drawGuideView();
+});
+
+socket.on("cursorMove", (pos) => {
+	const roomCode = socket.data.room;
+	if (!roomCode) return;
+	const room = rooms[roomCode];
+	if (!room) return;
+
+	room.players.forEach(p => {
+		if (p.id !== socket.id) {
+			const s = io.sockets.sockets.get(p.id);
+			if (s) s.emit("cursorUpdate", pos);
+		}
+	});
 });
 
 function showToast(message, duration = 1500) {
@@ -132,13 +211,7 @@ function renderPlayers(players, ownerId) {
 }
 
 function setupHiDPICanvas(canvas, ctx) {
-	const dpr = window.devicePixelRatio || 1;
-	const rect = canvas.getBoundingClientRect();
-	canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-	canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-	canvas.style.width = rect.width + "px";
-	canvas.style.height = rect.height + "px";
-	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+	ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 function catmullRom2bezier(points) {
@@ -173,58 +246,45 @@ function drawSmoothPath(ctx, points) {
 	grad.addColorStop(0.5, "rgba(180,220,255,0.92)");
 	grad.addColorStop(1, "rgba(140,190,255,0.88)");
 	ctx.strokeStyle = grad;
-	ctx.lineWidth = 6;
+	ctx.lineWidth = scaleForCanvas(6);
 	ctx.lineJoin = "round";
 	ctx.lineCap = "round";
 	ctx.shadowColor = "rgba(30,150,255,0.18)";
-	ctx.shadowBlur = 18;
+	ctx.shadowBlur = scaleForCanvas(8);
 	ctx.beginPath();
 	ctx.moveTo(points[0].x, points[0].y);
-	for (let b of beziers) {
-		ctx.bezierCurveTo(b.cp1.x, b.cp1.y, b.cp2.x, b.cp2.y, b.to.x, b.to.y);
-	}
+	for (let b of beziers) ctx.bezierCurveTo(b.cp1.x, b.cp1.y, b.cp2.x, b.cp2.y, b.to.x, b.to.y);
 	ctx.stroke();
 	ctx.restore();
+
 	ctx.save();
 	ctx.globalAlpha = 0.28;
 	ctx.strokeStyle = "rgba(255,255,255,0.06)";
-	ctx.lineWidth = 20;
+	ctx.lineWidth = scaleForCanvas(18);
 	ctx.beginPath();
 	ctx.moveTo(points[0].x, points[0].y);
-	for (let b of beziers) {
-		ctx.bezierCurveTo(b.cp1.x, b.cp1.y, b.cp2.x, b.cp2.y, b.to.x, b.to.y);
-	}
+	for (let b of beziers) ctx.bezierCurveTo(b.cp1.x, b.cp1.y, b.cp2.x, b.cp2.y, b.to.x, b.to.y);
 	ctx.stroke();
 	ctx.restore();
 }
 
 function drawCursor(ctx, x, y, angle = 0, color = "#FF6B6B") {
+	const size = scaleForCanvas(12);
 	ctx.save();
 	ctx.translate(x, y);
 	ctx.rotate(angle);
-	ctx.globalCompositeOperation = "source-over";
 	ctx.shadowColor = "rgba(255,90,90,0.55)";
-	ctx.shadowBlur = 16;
+	ctx.shadowBlur = scaleForCanvas(6);
 	ctx.fillStyle = color;
 	ctx.beginPath();
-	ctx.moveTo(0, -12);
-	ctx.lineTo(10, 10);
-	ctx.lineTo(0, 6);
-	ctx.lineTo(-10, 10);
+	ctx.moveTo(0, -size);
+	ctx.lineTo(size * 0.9, size);
+	ctx.lineTo(0, size * 0.5);
+	ctx.lineTo(-size * 0.9, size);
 	ctx.closePath();
 	ctx.fill();
-	ctx.restore();
-	ctx.save();
-	ctx.translate(x, y);
-	ctx.rotate(angle);
-	ctx.strokeStyle = "rgba(255,255,255,0.14)";
+	ctx.strokeStyle = "rgba(255,255,255,0.12)";
 	ctx.lineWidth = 1;
-	ctx.beginPath();
-	ctx.moveTo(0, -12);
-	ctx.lineTo(10, 10);
-	ctx.lineTo(0, 6);
-	ctx.lineTo(-10, 10);
-	ctx.closePath();
 	ctx.stroke();
 	ctx.restore();
 }
@@ -252,26 +312,74 @@ function initGame() {
 }
 
 function initGameCanvas() {
+	document.body.offsetHeight;
+
 	setupHiDPICanvas(gameCanvas, ctx);
 	clearCanvasBackground();
+
+    MAX_ACCEPT_DISTANCE = Math.max(40, Math.min(gameCanvas.width, gameCanvas.height) * 0.08);
+
 	if (role === "Guide") {
 		socket.emit("requestPath");
 	}
 	if (!mouseListenerAdded) {
-		mouseListenerAdded = true;
-		gameCanvas.addEventListener("mousemove", (e) => {
-			const rect = gameCanvas.getBoundingClientRect();
-			const pos = {
-				x: (e.clientX - rect.left) / rect.width,
-				y: (e.clientY - rect.top) / rect.height
-			};
-			if (role === "Blind") {
-				socket.emit("cursorMove", pos);
-				blindCursor = pos;
-				drawBlindView();
-			}
-		});
-	}
+        mouseListenerAdded = true;
+
+        gameCanvas.addEventListener('mousemove', (e) => {
+            const rect = gameCanvas.getBoundingClientRect();
+            const pos = {
+                x: (e.clientX - rect.left) / rect.width,
+                y: (e.clientY - rect.top) / rect.height
+            };
+            const pixelPos = { x: pos.x * gameCanvas.width, y: pos.y * gameCanvas.height };
+
+            if (role === "Blind") {
+                const posToSend = (Number.isFinite(pos.x) && Number.isFinite(pos.y)) ? pos : null;
+                socket.emit("cursorMove", posToSend);
+                blindCursor = pos;
+
+                if (measuring && path && path.length) {
+                    const acc = computeAccuracyForPixelPos(pixelPos, path);
+                    lastAccuracy = acc;
+                    measureOverlay.style.display = 'block';
+                    measureOverlay.textContent = `Accuracy: ${(acc * 100).toFixed(0)}%`;
+                }
+                drawBlindView();
+            } else {
+                blindCursor = pos;
+                drawGuideView();
+            }
+        });
+
+        gameCanvas.addEventListener('mousedown', (e) => {
+            if (role !== 'Blind' || gameDiv.style.display !== 'flex') return;
+            measuring = true;
+            lastAccuracy = null;
+            measureOverlay.style.display = 'block';
+            holdHint.style.display = 'none';
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (!measuring) return;
+            measuring = false;
+            if (lastAccuracy == null) lastAccuracy = 0;
+            measureOverlay.textContent = `Final: ${(lastAccuracy * 100).toFixed(0)}%`;
+            const room = currentRoom;
+            socket.emit('accuracyResult', { room: room || null, accuracy: lastAccuracy });
+            if (gameDiv.style.display === 'flex') {
+                setTimeout(() => {
+                    measureOverlay.style.display = 'none';
+                    if (role === 'Blind') holdHint.style.display = 'block';
+                }, 1300);
+            }
+        });
+
+        gameCanvas.addEventListener('mouseleave', () => {
+            if (role === 'Blind') {
+                socket.emit('cursorMove', null);
+            }
+        });
+    }
 	if (role === "Guide") {
 		drawGuideView();
 	} else {
@@ -284,11 +392,12 @@ function drawGuideView() {
 	clearCanvasBackground();
 	if (role === "Guide" && path && path.length > 0) {
 		drawSmoothPath(ctx, path);
+		drawStartMarker(ctx, path[0]);
 	}
-	if (blindCursor) {
+	if (blindCursor && blindCursor.active) {
 		const px = blindCursor.x;
 		const py = blindCursor.y;
-		const angle = path && path.length > 1 ? findTangentAngleOnPath(path, 0.5) : 0;
+		const angle = path && path.length > 1 ? findTangentAngleOnPath(path, 0.5) + Math.PI / 2 : 0;
 		drawCursor(ctx, px, py, angle, "#FF6B6B");
 	}
 }
@@ -296,15 +405,62 @@ function drawGuideView() {
 function drawBlindView() {
 	setupHiDPICanvas(gameCanvas, ctx);
 	clearCanvasBackground();
-	if (blindCursor) {
-		const px = blindCursor.x;
-		const py = blindCursor.y;
-		drawCursor(ctx, px, py, 0, "#FF6B6B");
+
+	if (path && path.length) drawStartMarker(ctx, path[0]);
+}
+
+function drawStartMarker(ctx, pt) {
+	if (!pt) return;
+	const outerR = scaleForCanvas(28);
+	const innerR = scaleForCanvas(18);
+	const centerR = scaleForCanvas(6);
+	ctx.save();
+	ctx.globalAlpha = 0.95;
+	ctx.beginPath();
+	ctx.fillStyle = 'rgba(60,160,255,0.12)';
+	ctx.arc(pt.x, pt.y, outerR, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.beginPath();
+	ctx.fillStyle = 'rgba(60,160,255,0.28)';
+	ctx.arc(pt.x, pt.y, innerR, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.beginPath();
+	ctx.fillStyle = '#7FD1FF';
+	ctx.arc(pt.x, pt.y, centerR, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.fillStyle = 'rgba(255,255,255,0.95)';
+	ctx.font = `${Math.max(10, Math.round(12 * Math.min(gameCanvas.width / 1600, gameCanvas.height / 900)))}px National Park, system-ui, sans-serif`;
+	ctx.textAlign = 'center';
+	ctx.fillText('START', pt.x, pt.y - outerR - 8);
+	ctx.restore();
+}
+
+function computeAccuracyForPixelPos(pixelPos, pixelPath) {
+	const beziers = catmullRom2bezier(pixelPath);
+	let bestDistSq = Infinity;
+
+	function sampleBezierDistSq(b) {
+		const STEPS = 48;
+		for (let i = 0; i <= STEPS; i++) {
+			const t = i / STEPS;
+			const mt = 1 - t;
+			const x = mt*mt*mt*b.from.x + 3*mt*mt*t*b.cp1.x + 3*mt*t*t*b.cp2.x + t*t*t*b.to.x;
+			const y = mt*mt*mt*b.from.y + 3*mt*mt*t*b.cp1.y + 3*mt*t*t*b.cp2.y + t*t*t*b.to.y;
+			const dx = x - pixelPos.x;
+			const dy = y - pixelPos.y;
+			const dsq = dx * dx + dy * dy;
+			if (dsq < bestDistSq) bestDistSq = dsq;
+		}
 	}
-	if (path && path.length > 1) {
-		ctx.save();
-		ctx.globalAlpha = 0.06;
-		drawSmoothPath(ctx, path);
-		ctx.restore();
-	}
+
+	for (let b of beziers) sampleBezierDistSq(b);
+
+	const dist = Math.sqrt(bestDistSq || 0);
+	const raw = 1 - (dist / Math.max(1, MAX_ACCEPT_DISTANCE));
+	return Math.max(0, Math.min(1, raw));
+}
+
+function scaleForCanvas(v) {
+	const ref = Math.min(gameCanvas.width, gameCanvas.height);
+	return Math.max(1, Math.round((v / 900) * ref * 3));
 }

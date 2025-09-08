@@ -76,7 +76,11 @@ io.on("connection", (socket) => {
         if (room.players.length === 2) {
             room.inGame = true;
             assignRoles(roomCode);
-            io.to(roomCode).emit("startGame", { path: room.path || null });
+            if (!room.path) {
+                const raw = generatePath(BASE_W, BASE_H);
+                room.path = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
+            }
+            io.to(roomCode).emit("startGame", { path: room.path });
         }
     });
 
@@ -89,7 +93,7 @@ io.on("connection", (socket) => {
             const raw = generatePath(BASE_W, BASE_H);
             const normalized = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
             room.path = normalized;
-            socket.emit("pathData", normalized);
+            io.to(roomCode).emit("pathData", normalized);
         }
     });
 
@@ -106,6 +110,12 @@ io.on("connection", (socket) => {
                 if (s) s.emit("cursorUpdate", pos);
             }
         });
+    });
+
+    socket.on('accuracyResult', ({ room, accuracy }) => {
+        const roomCode = socket.data.room || room;
+        if (!roomCode || !rooms[roomCode]) return;
+        io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy });
     });
 
     function generatePath(width, height) {
