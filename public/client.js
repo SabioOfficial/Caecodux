@@ -5,7 +5,10 @@ let mouseListenerAdded = false;
 let measuring = false;
 let lastAccuracy = null;
 let currentRoom = null;
-let MAX_ACCEPT_DISTANCE = 120;
+let MAX_ACCEPT_DISTANCE = 40;
+let pathSamplePoints = null;
+let pathVisited = null;
+const PATH_SAMPLES = 300;
 
 const socket = io();
 const joinBtn = document.getElementById('joinBtn');
@@ -134,12 +137,14 @@ socket.on("gameEnded", ({ reason }) => {
 });
 
 socket.on('blindAccuracy', ({ playerId, accuracy }) => {
-	showToast(`${playerId === socket.id ? 'You' : 'Blind'} scored ${(accuracy*100).toFixed(0)}%`, 2000);
+	showToast(`${playerId === socket.id ? 'You' : 'Blind'} scored ${(accuracy*100).toFixed(0)}%`, 2600);
 });
 
 socket.on("pathData", (normalizedPath) => {
 	if (!normalizedPath) return;
 	path = normalizedPath.map(pt => ({ x: pt.x * gameCanvas.width, y: pt.y * gameCanvas.height }));
+    pathSamplePoints = sampleFullPath(path, PATH_SAMPLES);
+    pathVisited = new Array(pathSamplePoints.length).fill(false);
 	drawGuideView();
 	drawBlindView();
 });
@@ -169,6 +174,54 @@ socket.on("cursorMove", (pos) => {
 			if (s) s.emit("cursorUpdate", pos);
 		}
 	});
+});
+
+socket.on('accuracyResult', ({ room, accuracy }) => { // this doesnt work but oh well
+	const roomCode = socket.data.room || room;
+	if (!roomCode || !rooms[roomCode]) return;
+
+	// sanitize accuracy
+	const acc = typeof accuracy === 'number' ? Math.max(0, Math.min(1, accuracy)) : 0;
+
+	// broadcast final accuracy to room so both clients can show it
+	io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy: acc });
+
+	const PASS_THRESHOLD = 0.8;
+
+	if (acc >= PASS_THRESHOLD) {
+		setTimeout(() => {
+			const room = rooms[roomCode];
+			if (!room) return;
+			// notify and fucking nuke the players out of the room
+			room.players.forEach(p => {
+				const s = io.sockets.sockets.get(p.id);
+				if (s) {
+					try {
+						s.emit('gameEnded', { reason: 'Completed the path' });
+						s.disconnect(true);
+					} catch (e) { /* ignore because why not */ }
+				}
+			});
+			delete rooms[roomCode];
+		}, 800);
+	} else {
+		io.to(roomCode).emit('gameIncomplete', {
+			playerId: socket.id,
+			accuracy: acc,
+			required: PASS_THRESHOLD
+		});
+	}
+});
+
+socket.on('gameIncomplete', ({ playerId, accuracy, required }) => {
+	const who = playerId === socket.id ? 'You' : 'Blind';
+	showToast(`${who} scored ${(accuracy*100).toFixed(0)}% — need ${(required*100).toFixed(0)}% to finish`, 3500);
+	if (role === 'Blind') {
+		pathVisited = new Array(pathSamplePoints ? pathSamplePoints.length : PATH_SAMPLES).fill(false);
+		lastAccuracy = null;
+		measureOverlay.style.display = 'none';
+		holdHint.style.display = 'block';
+	}
 });
 
 function showToast(message, duration = 1500) {
@@ -338,11 +391,30 @@ function initGameCanvas() {
                 socket.emit("cursorMove", posToSend);
                 blindCursor = pos;
 
-                if (measuring && path && path.length) {
-                    const acc = computeAccuracyForPixelPos(pixelPos, path);
-                    lastAccuracy = acc;
+                if (measuring && pathSamplePoints && pathSamplePoints.length) {
+                    let nearestIdx = -1;
+                    let bestSq = Infinity;
+                    for (let i = 0; i < pathSamplePoints.length; i++) {
+                        const dx = pathSamplePoints[i].x - pixelPos.x;
+                        const dy = pathSamplePoints[i].y - pixelPos.y;
+                        const dsq = dx*dx + dy*dy;
+                        if (dsq < bestSq) {
+                            bestSq = dsq;
+                            nearestIdx = i;
+                        }
+                    }
+                    const thr = MAX_ACCEPT_DISTANCE;
+                    if (bestSq <= thr*thr) {
+                        const radius = Math.max(1, Math.round(pathSamplePoints.length * 0.01));
+                        const start = Math.max(0, nearestIdx - radius);
+                        const end = Math.min(pathSamplePoints.length - 1, nearestIdx + radius);
+                        for (let k = start; k <= end; k++) pathVisited[k] = true;
+                    }
+                    const visitedCount = pathVisited.reduce((s, v) => s + (v ? 1 : 0), 0);
+                    const provisional = visitedCount / pathVisited.length;
+                    lastAccuracy = provisional;
                     measureOverlay.style.display = 'block';
-                    measureOverlay.textContent = `Accuracy: ${(acc * 100).toFixed(0)}%`;
+                    measureOverlay.textContent = `Accuracy: ${(provisional * 100).toFixed(0)}%`;
                 }
                 drawBlindView();
             } else {
@@ -360,12 +432,22 @@ function initGameCanvas() {
         });
 
         window.addEventListener('mouseup', (e) => {
-            if (!measuring) return;
+           if (!measuring) return;
             measuring = false;
-            if (lastAccuracy == null) lastAccuracy = 0;
-            measureOverlay.textContent = `Final: ${(lastAccuracy * 100).toFixed(0)}%`;
+            let finalAccuracy = 0;
+            if (pathVisited && pathVisited.length) {
+                const visitedCount = pathVisited.reduce((s, v) => s + (v ? 1 : 0), 0);
+                finalAccuracy = visitedCount / pathVisited.length;
+            } else if (lastAccuracy != null) {
+                finalAccuracy = lastAccuracy;
+            } else {
+                finalAccuracy = 0;
+            }
+            lastAccuracy = finalAccuracy;
+            measureOverlay.textContent = `Final: ${(finalAccuracy * 100).toFixed(0)}%`;
             const room = currentRoom;
-            socket.emit('accuracyResult', { room: room || null, accuracy: lastAccuracy });
+            socket.emit('accuracyResult', { room: room || null, accuracy: finalAccuracy });
+            pathVisited = new Array(pathSamplePoints ? pathSamplePoints.length : PATH_SAMPLES).fill(false);
             if (gameDiv.style.display === 'flex') {
                 setTimeout(() => {
                     measureOverlay.style.display = 'none';
@@ -463,4 +545,28 @@ function computeAccuracyForPixelPos(pixelPos, pixelPath) {
 function scaleForCanvas(v) {
 	const ref = Math.min(gameCanvas.width, gameCanvas.height);
 	return Math.max(1, Math.round((v / 900) * ref * 3));
+}
+
+function sampleFullPath(points, samples = PATH_SAMPLES) {
+	if (!points || points.length < 2) return [];
+	const beziers = catmullRom2bezier(points);
+	const pts = [];
+	const segCount = beziers.length;
+	if (segCount === 0) return pts;
+	for (let i = 0; i < segCount; i++) {
+		const b = beziers[i];
+		const segSamples = Math.max(1, Math.floor(samples / segCount));
+		for (let s = 0; s < segSamples; s++) {
+			const t = s / segSamples;
+			const mt = 1 - t;
+			const x = mt*mt*mt*b.from.x + 3*mt*mt*t*b.cp1.x + 3*mt*t*t*b.cp2.x + t*t*t*b.to.x;
+			const y = mt*mt*mt*b.from.y + 3*mt*mt*t*b.cp1.y + 3*mt*t*t*b.cp2.y + t*t*t*b.to.y;
+			pts.push({ x, y });
+		}
+	}
+	const last = beziers[beziers.length - 1];
+	if (last) pts.push({ x: last.to.x, y: last.to.y });
+	if (pts.length > samples) return pts.slice(0, samples);
+	while (pts.length < samples) pts.push(pts[pts.length - 1]);
+	return pts;
 }
