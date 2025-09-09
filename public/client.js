@@ -144,6 +144,19 @@ socket.on('blindAccuracy', ({ playerId, accuracy }) => {
 	showToast(`${playerId === socket.id ? 'You' : 'Blind'} scored ${(accuracy*100).toFixed(0)}%`, 2600);
 });
 
+socket.on('levelUp', ({ difficulty, path: serverPath }) => {
+	setTimeout(() => {
+		showToast(`Difficulty Level ${difficulty}`, 2000);
+
+		path = serverPath.map(pt => ({
+			x: pt.x * gameCanvas.width,
+			y: pt.y * gameCanvas.height
+		}));
+
+		initGame();
+	}, 2000);
+});
+
 socket.on("pathData", (normalizedPath) => {
 	if (!normalizedPath) return;
 	path = normalizedPath.map(pt => ({ x: pt.x * gameCanvas.width, y: pt.y * gameCanvas.height }));

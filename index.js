@@ -127,28 +127,24 @@ io.on("connection", (socket) => {
             ? Math.max(0, Math.min(1, accuracy))
             : 0;
 
-        io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy: acc });
-
         const PASS_THRESHOLD = 0.8;
         const roomObj = rooms[roomCode];
+
+        io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy: acc });
 
         if (acc >= PASS_THRESHOLD) {
             roomObj.difficulty++;
             setTimeout(() => {
+                roomObj.difficulty++;
                 const raw = generatePath(BASE_W, BASE_H, roomObj.difficulty);
                 roomObj.path = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
 
-                io.to(roomCode).emit("startGame", { path: roomObj.path, difficulty: roomObj.difficulty });
-            }, 1000);
+                io.to(roomCode).emit("levelUp", { difficulty: roomObj.difficulty, path: roomObj.path });
+            }, 2000);
         } else {
-            io.to(roomCode).emit('gameIncomplete', {
-                playerId: socket.id,
-                accuracy: acc,
-                required: PASS_THRESHOLD
-            });
+            io.to(roomCode).emit('gameEnded', { reason: `Failed to complete Difficulty ${roomObj.difficulty}`})
+            delete rooms[roomCode];
         }
-
-        io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy });
     });
 
     function generatePath(width, height, difficulty = 1) {
