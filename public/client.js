@@ -119,6 +119,10 @@ socket.on("startGame", (data = {}) => {
 	roomDiv.style.display = "none";
 	gameDiv.style.display = "flex";
 
+	if (data.difficulty) {
+		showToast(`Difficulty Level ${data.difficulty}`, 2000);
+	}
+
 	if (role === 'Blind') {
 		if (path && path.length) drawBlindView();
     }

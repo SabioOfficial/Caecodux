@@ -27,8 +27,15 @@ io.on("connection", (socket) => {
             return;
         }
 
-        // initialize room with players + inGame flag || THIS IS A CRY FOR HELP
-        if (!rooms[roomCode]) rooms[roomCode] = { players: [], inGame: false, owner: null };
+        // difficulty revamp
+        if (!rooms[roomCode]) {
+            rooms[roomCode] = {
+                players: [],
+                inGame: false,
+                owner: null,
+                difficulty: 1
+            };
+        }
         const room = rooms[roomCode];
 
         // please dont join mid-game. not that ur able to anyways lmao
@@ -115,11 +122,37 @@ io.on("connection", (socket) => {
     socket.on('accuracyResult', ({ room, accuracy }) => {
         const roomCode = socket.data.room || room;
         if (!roomCode || !rooms[roomCode]) return;
+
+        const acc = typeof accuracy === 'number'
+            ? Math.max(0, Math.min(1, accuracy))
+            : 0;
+
+        io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy: acc });
+
+        const PASS_THRESHOLD = 0.8;
+        const roomObj = rooms[roomCode];
+
+        if (acc >= PASS_THRESHOLD) {
+            roomObj.difficulty++;
+            setTimeout(() => {
+                const raw = generatePath(BASE_W, BASE_H, roomObj.difficulty);
+                roomObj.path = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
+
+                io.to(roomCode).emit("startGame", { path: roomObj.path, difficulty: roomObj.difficulty });
+            }, 1000);
+        } else {
+            io.to(roomCode).emit('gameIncomplete', {
+                playerId: socket.id,
+                accuracy: acc,
+                required: PASS_THRESHOLD
+            });
+        }
+
         io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy });
     });
 
-    function generatePath(width, height) {
-        const numPoints = 8;
+    function generatePath(width, height, difficulty = 1) {
+        const numPoints = 8 + difficulty * 2;
         const margin = 50;
         const points = [];
 
@@ -133,7 +166,6 @@ io.on("connection", (socket) => {
                 )
             });
         }
-
         return points;
     }
 
