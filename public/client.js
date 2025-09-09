@@ -8,6 +8,7 @@ let currentRoom = null;
 let MAX_ACCEPT_DISTANCE = 40;
 let pathSamplePoints = null;
 let pathVisited = null;
+let owner = false;
 const PATH_SAMPLES = 300;
 
 const socket = io();
@@ -75,12 +76,24 @@ joinBtn.addEventListener('click', () => {
 	}
 });
 
+startBtn.addEventListener('mouseenter', () => {
+	if (startBtn.disabled && owner) {
+		startBtn.innerText = '2 players are required';
+	} else if (startBtn.disabled && !owner) {
+		startBtn.innerText = 'Waiting for host...';
+	};
+});
+
+startBtn.addEventListener('mouseleave', () => {
+	startBtn.innerText = 'Start Game';
+})
+
 socket.on("joinFailed", (reason) => {
 	showToast(reason);
 });
 
 socket.on("youAreOwner", () => {
-	startBtn.style.display = 'block';
+	owner = true;
 });
 
 socket.on("roleAssigned", (r) => {
@@ -101,10 +114,12 @@ socket.on("roleAssigned", (r) => {
 
 socket.on("playerJoined", (data) => {
 	renderPlayers(data.players, data.owner);
+	if (data.players.length >= 2 && owner) { startBtn.disabled = false; } else { startBtn.disabled = true };
 });
 
 socket.on("playerLeft", (data) => {
 	renderPlayers(data.players, data.owner);
+	if (data.players.length >= 2 && owner) { startBtn.disabled = false; } else { startBtn.disabled = true };
 });
 
 startBtn.addEventListener('click', () => {
