@@ -1,14 +1,18 @@
-let role = null;
-let path = null;
-let blindCursor = null;
-let mouseListenerAdded = false;
-let measuring = false;
-let lastAccuracy = null;
-let currentRoom = null;
+// ooh stylized
+let blindCursor =         null;
+let currentRoom =         null;
+let guideVisited =        null;
+let lastAccuracy =        null;
 let MAX_ACCEPT_DISTANCE = 40;
-let pathSamplePoints = null;
-let pathVisited = null;
-let owner = false;
+let measuring =           false;
+let mouseListenerAdded =  false;
+let owner =               false;
+let path =                null;
+let pathSamplePoints =    null;
+let pathVisited =         null;
+let role = 		          null;
+
+// cant be bothered to stylize
 const PATH_SAMPLES = 300;
 
 const socket = io();
@@ -177,6 +181,7 @@ socket.on("pathData", (normalizedPath) => {
 	path = normalizedPath.map(pt => ({ x: pt.x * gameCanvas.width, y: pt.y * gameCanvas.height }));
     pathSamplePoints = sampleFullPath(path, PATH_SAMPLES);
     pathVisited = new Array(pathSamplePoints.length).fill(false);
+    guideVisited = new Array(pathSamplePoints.length).fill(false);
 	drawGuideView();
 	drawBlindView();
 });
@@ -194,55 +199,29 @@ socket.on("cursorUpdate", (pos) => {
 	if (role === 'Guide') drawGuideView();
 });
 
+socket.on("pathVisitedBroadcast", ({ playerId, indices }) => {
+	if (role !== 'Guide') return;
+	if (!pathSamplePoints) return;
+	if (!guideVisited) guideVisited = new Array(pathSamplePoints.length).fill(false);
+	for (let i = 0; i < indices.length; i++) {
+		const idx = indices[i];
+		if (idx >= 0 && idx < guideVisited.length) guideVisited[idx] = true;
+	}
+	drawGuideView();
+});
+
 socket.on("cursorMove", (pos) => {
 	const roomCode = socket.data.room;
 	if (!roomCode) return;
-	const room = rooms[roomCode];
+	const room = rooms && rooms[roomCode];
 	if (!room) return;
 
 	room.players.forEach(p => {
 		if (p.id !== socket.id) {
-			const s = io.sockets.sockets.get(p.id);
-			if (s) s.emit("cursorUpdate", pos);
+			const s = io.sockets && io.sockets.sockets && io.sockets.sockets.get && io.sockets.sockets.get(p.id);
+			if (s) s.emit && s.emit("cursorUpdate", pos);
 		}
 	});
-});
-
-socket.on('accuracyResult', ({ room, accuracy }) => { // this doesnt work but oh well
-	const roomCode = socket.data.room || room;
-	if (!roomCode || !rooms[roomCode]) return;
-
-	// sanitize accuracy
-	const acc = typeof accuracy === 'number' ? Math.max(0, Math.min(1, accuracy)) : 0;
-
-	// broadcast final accuracy to room so both clients can show it
-	io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy: acc });
-
-	const PASS_THRESHOLD = 0.8;
-
-	if (acc >= PASS_THRESHOLD) {
-		setTimeout(() => {
-			const room = rooms[roomCode];
-			if (!room) return;
-			// notify and fucking nuke the players out of the room
-			room.players.forEach(p => {
-				const s = io.sockets.sockets.get(p.id);
-				if (s) {
-					try {
-						s.emit('gameEnded', { reason: 'Completed the path' });
-						s.disconnect(true);
-					} catch (e) { /* ignore because why not */ }
-				}
-			});
-			delete rooms[roomCode];
-		}, 800);
-	} else {
-		io.to(roomCode).emit('gameIncomplete', {
-			playerId: socket.id,
-			accuracy: acc,
-			required: PASS_THRESHOLD
-		});
-	}
 });
 
 socket.on('gameIncomplete', ({ playerId, accuracy, required }) => {
@@ -353,6 +332,34 @@ function drawSmoothPath(ctx, points) {
 	ctx.restore();
 }
 
+function drawVisitedSegmentsFromSamples(ctx, samples, visited) {
+	if (!samples || samples.length < 2 || !visited) return;
+	ctx.save();
+	ctx.lineJoin = "round";
+	ctx.lineCap = "round";
+	ctx.strokeStyle = "rgba(0,0,0,0.45)";
+	ctx.lineWidth = scaleForCanvas(14);
+	let started = false;
+	for (let i = 0; i < visited.length; i++) {
+		if (visited[i]) {
+			if (!started) {
+				ctx.beginPath();
+				ctx.moveTo(samples[i].x, samples[i].y);
+				started = true;
+			} else {
+				ctx.lineTo(samples[i].x, samples[i].y);
+			}
+		} else {
+			if (started) {
+				ctx.stroke();
+				started = false;
+			}
+		}
+	}
+	if (started) ctx.stroke();
+	ctx.restore();
+}
+
 function drawCursor(ctx, x, y, angle = 0, color = "#FF6B6B") {
 	const size = scaleForCanvas(12);
 	ctx.save();
@@ -410,6 +417,10 @@ function initGameCanvas() {
 	if (!mouseListenerAdded) {
         mouseListenerAdded = true;
 
+        let totalMeasureSamples = 0;
+        let offPathSamples = 0;
+        let lastEmitTime = 0;
+
         gameCanvas.addEventListener('mousemove', (e) => {
             const rect = gameCanvas.getBoundingClientRect();
             const pos = {
@@ -424,6 +435,7 @@ function initGameCanvas() {
                 blindCursor = pos;
 
                 if (measuring && pathSamplePoints && pathSamplePoints.length) {
+                    totalMeasureSamples++;
                     let nearestIdx = -1;
                     let bestSq = Infinity;
                     for (let i = 0; i < pathSamplePoints.length; i++) {
@@ -441,12 +453,28 @@ function initGameCanvas() {
                         const start = Math.max(0, nearestIdx - radius);
                         const end = Math.min(pathSamplePoints.length - 1, nearestIdx + radius);
                         for (let k = start; k <= end; k++) pathVisited[k] = true;
+                    } else {
+                        offPathSamples++;
                     }
+
                     const visitedCount = pathVisited.reduce((s, v) => s + (v ? 1 : 0), 0);
                     const provisional = visitedCount / pathVisited.length;
-                    lastAccuracy = provisional;
+
+                    const offFrac = offPathSamples / Math.max(1, totalMeasureSamples);
+                    const penalty = Math.min(0.5, offFrac * 0.6);
+                    const provisionalWithPenalty = Math.max(0, provisional - penalty);
+
+                    lastAccuracy = provisionalWithPenalty;
                     measureOverlay.style.display = 'block';
-                    measureOverlay.textContent = `Accuracy: ${(provisional * 100).toFixed(0)}%`;
+                    measureOverlay.textContent = `Accuracy: ${(provisionalWithPenalty * 100).toFixed(0)}%`;
+
+                    const now = Date.now();
+                    if (now - lastEmitTime > 150) {
+                        lastEmitTime = now;
+                        const indices = [];
+                        for (let i = 0; i < pathVisited.length; i++) if (pathVisited[i]) indices.push(i);
+                        socket.emit('pathVisitedUpdate', { indices });
+                    }
                 }
                 drawBlindView();
             } else {
@@ -461,25 +489,40 @@ function initGameCanvas() {
             lastAccuracy = null;
             measureOverlay.style.display = 'block';
             holdHint.style.display = 'none';
+            totalMeasureSamples = 0;
+            offPathSamples = 0;
         });
 
         window.addEventListener('mouseup', (e) => {
            if (!measuring) return;
             measuring = false;
+
             let finalAccuracy = 0;
             if (pathVisited && pathVisited.length) {
                 const visitedCount = pathVisited.reduce((s, v) => s + (v ? 1 : 0), 0);
-                finalAccuracy = visitedCount / pathVisited.length;
+                const provisional = visitedCount / pathVisited.length;
+                const offFrac = offPathSamples / Math.max(1, totalMeasureSamples);
+                const penalty = Math.min(0.5, offFrac * 0.6);
+                finalAccuracy = Math.max(0, provisional - penalty);
             } else if (lastAccuracy != null) {
                 finalAccuracy = lastAccuracy;
             } else {
                 finalAccuracy = 0;
             }
+
             lastAccuracy = finalAccuracy;
             measureOverlay.textContent = `Final: ${(finalAccuracy * 100).toFixed(0)}%`;
             const room = currentRoom;
             socket.emit('accuracyResult', { room: room || null, accuracy: finalAccuracy });
+
+            const indices = [];
+            if (pathVisited) for (let i = 0; i < pathVisited.length; i++) if (pathVisited[i]) indices.push(i);
+            socket.emit('pathVisitedUpdate', { indices });
+
             pathVisited = new Array(pathSamplePoints ? pathSamplePoints.length : PATH_SAMPLES).fill(false);
+            totalMeasureSamples = 0;
+            offPathSamples = 0;
+
             if (gameDiv.style.display === 'flex') {
                 setTimeout(() => {
                     measureOverlay.style.display = 'none';
@@ -506,6 +549,9 @@ function drawGuideView() {
 	clearCanvasBackground();
 	if (role === "Guide" && path && path.length > 0) {
 		drawSmoothPath(ctx, path);
+		if (guideVisited && pathSamplePoints) {
+			drawVisitedSegmentsFromSamples(ctx, pathSamplePoints, guideVisited);
+		}
 		drawStartMarker(ctx, path[0]);
 	}
 	if (blindCursor && blindCursor.active) {

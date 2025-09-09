@@ -33,7 +33,8 @@ io.on("connection", (socket) => {
                 players: [],
                 inGame: false,
                 owner: null,
-                difficulty: 1
+                difficulty: 1,
+                visitedSet: new Set()
             };
         }
         const room = rooms[roomCode];
@@ -87,6 +88,7 @@ io.on("connection", (socket) => {
                 const raw = generatePath(BASE_W, BASE_H);
                 room.path = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
             }
+            room.visitedSet = new Set();
             io.to(roomCode).emit("startGame", { path: room.path });
         }
     });
@@ -100,6 +102,7 @@ io.on("connection", (socket) => {
             const raw = generatePath(BASE_W, BASE_H);
             const normalized = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
             room.path = normalized;
+            room.visitedSet = new Set();
             io.to(roomCode).emit("pathData", normalized);
         }
     });
@@ -119,6 +122,20 @@ io.on("connection", (socket) => {
         });
     });
 
+    socket.on('pathVisitedUpdate', ({ indices } = {}) => {
+        const roomCode = socket.data.room;
+        if (!roomCode || !rooms[roomCode]) return;
+        const room = rooms[roomCode];
+
+        if (!Array.isArray(indices)) return;
+        if (!room.visitedSet) room.visitedSet = new Set();
+        for (let i = 0; i < indices.length; i++) {
+            const idx = indices[i];
+            if (typeof idx === 'number') room.visitedSet.add(idx);
+        }
+        io.to(roomCode).emit('pathVisitedBroadcast', { playerId: socket.id, indices });
+    });
+
     socket.on('accuracyResult', ({ room, accuracy }) => {
         const roomCode = socket.data.room || room;
         if (!roomCode || !rooms[roomCode]) return;
@@ -133,12 +150,13 @@ io.on("connection", (socket) => {
         io.to(roomCode).emit('blindAccuracy', { playerId: socket.id, accuracy: acc });
 
         if (acc >= PASS_THRESHOLD) {
-            roomObj.difficulty++;
-            setTimeout(() => {
-                roomObj.difficulty++;
-                const raw = generatePath(BASE_W, BASE_H, roomObj.difficulty);
-                roomObj.path = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
+            roomObj.difficulty = (roomObj.difficulty || 1) + 1;
+            const newDifficulty = roomObj.difficulty;
 
+            setTimeout(() => {
+                const raw = generatePath(BASE_W, BASE_H, newDifficulty);
+                roomObj.path = raw.map(p => ({ x: p.x / BASE_W, y: p.y / BASE_H }));
+                roomObj.visitedSet = new Set();
                 io.to(roomCode).emit("levelUp", { difficulty: roomObj.difficulty, path: roomObj.path });
             }, 2000);
         } else {
@@ -147,33 +165,12 @@ io.on("connection", (socket) => {
         }
     });
 
-    function generatePath(width, height, difficulty = 1) {
-        const numPoints = 8 + difficulty * 2;
-        const margin = 50;
-        const points = [];
-
-        for (let i = 0; i < numPoints; i++) {
-            points.push({
-                x: Math.floor(
-                    margin + Math.random() * (width - margin * 2)
-                ),
-                y: Math.floor(
-                    margin + (i / (numPoints - 1)) * (height - margin * 2)
-                )
-            });
-        }
-        return points;
-    }
-
-    // oops this wasnt supposed to be nested in the joinRoom socket
     socket.on("disconnect", () => {
         console.log(socket.id, "disconnected");
 
-        // 2nd fix to my stupid logica
         const roomCode = socket.data.room;
         if (!roomCode || !rooms[roomCode]) return;
 
-        // fuck you new logic
         const room = rooms[roomCode];
         room.players = room.players.filter(p => p.id !== socket.id);
 
@@ -199,7 +196,7 @@ io.on("connection", (socket) => {
 
                 io.to(roomCode).emit("playerJoined", { players: room.players, owner: room.owner });
 
-                // asign roles
+                // assign roles
                 assignRoles(roomCode);
             }
         }
@@ -218,6 +215,24 @@ function assignRoles(roomCode) {
             s.emit("roleAssigned", role);
         }
     });
+}
+
+function generatePath(width, height, difficulty = 1) {
+    const numPoints = 8 + difficulty * 2;
+    const margin = 50;
+    const points = [];
+
+    for (let i = 0; i < numPoints; i++) {
+        points.push({
+            x: Math.floor(
+                margin + Math.random() * (width - margin * 2)
+            ),
+            y: Math.floor(
+                margin + (i / (numPoints - 1)) * (height - margin * 2)
+            )
+        });
+    }
+    return points;
 }
 
 // to localhost this shit of a website
